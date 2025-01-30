@@ -97,6 +97,24 @@ fn get_games() -> io::Result<()> {
             match NesRom::load(path) {
                 Ok(rom) => {
                     rom.print_info();
+                    let mut i = 0;
+                    while i < rom.prg_rom.len() {
+                        let byte = rom.prg_rom[i];
+                        
+                        if byte == 0b10101001 {
+                            match Opcode::from_binary(byte >> 4) {
+                                Some(opcode) => println!("Binary '{:08b}' corresponds to opcode {:?}", byte, opcode),
+                                None => println!("No corresponding opcode for binary '{:08b}'", byte),
+                            }
+
+                            match AddressingMode::from_binary(byte & 0b00001111, i) {
+                                Some(opcode) => println!("Binary '{:08b}' corresponds to Addressing Mode {:?}", byte, opcode),
+                                None => println!("No corresponding opcode for binary '{:08b}'", byte),
+                            }
+                        }
+
+                        i += 1; // Move to the next byte
+                    }
                 }
                 Err(e) => eprintln!("Erro ao carregar ROM: {}", e),
             }
@@ -104,6 +122,66 @@ fn get_games() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+
+#[derive(Debug)]
+enum AddressingMode {
+    Immediate(usize),       
+    ZeroPage(usize),         
+    Absolute(usize),        
+    Indirect(usize),       
+}
+
+impl AddressingMode {
+    fn to_binary(&self) -> (u8, usize) {
+        match self {
+            AddressingMode::Immediate(addr) => (0b00001001, *addr),
+            AddressingMode::ZeroPage(addr) => (0b00000101, *addr),
+            AddressingMode::Absolute(addr) => (0b00001101, *addr),
+            AddressingMode::Indirect(addr) => (0b00000001, *addr),
+        }
+    }
+
+    fn from_binary(binary: u8, address: usize) -> Option<AddressingMode> {
+        match binary {
+            0b00001001 => Some(AddressingMode::Immediate(address)),
+            0b00000101 => Some(AddressingMode::ZeroPage(address)),
+            0b00001101 => Some(AddressingMode::Absolute(address)),
+            0b00000001 => Some(AddressingMode::Indirect(address)),
+            _ => None,  
+        }
+    }
+}
+
+#[derive(Debug)]
+
+enum Opcode {
+    LDA,
+    STA,
+    ADD,
+    SUB,
+}
+
+impl Opcode {
+    fn to_binary(&self) -> u8 {
+        match self {
+            Opcode::LDA => 0b1010,
+            Opcode::STA => 0b1011,
+            Opcode::ADD => 0b1100,
+            Opcode::SUB => 0b1101,
+        }
+    }
+
+    fn from_binary(binary: u8) -> Option<Opcode> {
+        match binary {
+            0b1010 => Some(Opcode::LDA),
+            0b1011 => Some(Opcode::STA),
+            0b1100 => Some(Opcode::ADD),
+            0b1101 => Some(Opcode::SUB),
+            _ => None, 
+        }
+    }
 }
 fn main() {
     let _ = get_games();
