@@ -1,3 +1,4 @@
+
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -87,7 +88,6 @@ impl NesRom {
 fn get_games() -> io::Result<()> {
     let folder_path = "./../roms";
 
-    // Read the directory
     for entry in fs::read_dir(folder_path)? {
         let entry = entry?;
         let path = entry.path();
@@ -97,27 +97,76 @@ fn get_games() -> io::Result<()> {
             match NesRom::load(path) {
                 Ok(rom) => {
                     rom.print_info();
-                    let mut i = 0;
-                    while i < rom.prg_rom.len() {
-                        let byte = rom.prg_rom[i];
-                        
-                        
-                            match Opcode::from_binary(byte) {
-                                Some(opcode) => println!("Binary '{:08b}' corresponds to opcode {:?}", byte, opcode),
-                                None => println!("No corresponding opcode for binary '{:08b}'", byte),
-                            }
-                        
-
-                        i += 1; // Move to the next byte
-                    }
+        
+                    process_rom_with_bus(rom);
                 }
                 Err(e) => eprintln!("Erro ao carregar ROM: {}", e),
             }
-        } 
+        }
+        
     }
 
     Ok(())
 }
+
+
+pub struct Bus {
+    memory: [u8; 64 * 1024], 
+}
+
+impl Bus {
+    pub fn new() -> Self {
+        Bus {
+            memory: [0; 64 * 1024],
+        }
+    }
+
+    pub fn read(&self, address: u16) -> u8 {
+        self.memory[address as usize]
+    }
+
+    pub fn write(&mut self, address: u16, value: u8) {
+        self.memory[address as usize] = value;
+    }
+
+    pub fn load_prg_rom(&mut self, prg_rom: &[u8]) -> Result<(), &'static str> {
+        if prg_rom.len() > 0x8000 {
+            return Err("PRG-ROM size exceeds 32 KB limit!");
+        }
+        self.memory[0x8000..0x8000 + prg_rom.len()].copy_from_slice(prg_rom);
+        Ok(())
+    }
+}
+
+fn process_rom_with_bus(rom: NesRom) {
+    let mut bus = Bus::new();
+
+    if let Err(e) = bus.load_prg_rom(&rom.prg_rom) {
+        eprintln!("Erro ao carregar PRG-ROM: {}", e);
+        return;
+    }
+
+    let mut pc: u16 = 0x8000; // PC start in PRG-ROM
+    let rom_end = 0x8000_usize + rom.prg_rom.len(); 
+    
+    while (pc as usize) < rom_end {
+        let byte = bus.read(pc);
+        match Opcode::from_binary(byte) {
+            Some(opcode) => {
+                println!("Binary '{:08b}' corresponds to opcode {:?}", byte, opcode);
+                for i in 1..opcode.2 {
+                    println!("{:?}", bus.read(pc) + i);
+                }
+                pc += opcode.2 as u16;
+            }
+            None => {
+                println!("No corresponding opcode for binary '{:08b}'", byte);
+                pc += 1;
+            }
+        }
+    }
+}
+
 
 
 #[derive(Debug)]
@@ -201,7 +250,7 @@ enum Opcode {
 }
 
 impl Opcode {
-    fn from_binary(binary: u8) -> Option<(Opcode, AddressingMode, u8, u8)> {
+    fn from_binary(binary: u8) -> Option<(Opcode, AddressingMode, u8, u8)> { // opcode, bytes and cycles
         match binary {
             // ADC (Add with carry)
             0x69 => Some((Opcode::ADC, AddressingMode::Immediate, 2, 2)),
