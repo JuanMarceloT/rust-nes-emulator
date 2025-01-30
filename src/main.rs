@@ -155,8 +155,9 @@ fn process_rom_with_bus(rom: NesRom) {
             Some(opcode) => {
                 println!("Binary  addressing_mode:'{:?}' corresponds o opcode {:?}", opcode.addressing_mode, opcode.opcode);
                 for i in 1..opcode.bytes {
-                    println!("{:?}", bus.read(pc) + i);
+                    println!("{:?}", bus.read(pc + (i as u16)));
                 }
+                println!("{:?} in the addres, and the value is {:?}", opcode.effective_address(pc, &bus, 0 ,1), bus.read(opcode.effective_address(pc, &bus,0 ,1)));
                 pc += opcode.bytes as u16;
             }
             None => {
@@ -256,6 +257,97 @@ struct Instruction {
     cycles: u8,
 }
 
+
+impl Instruction {
+    fn effective_address(&self, pc: u16, bus : &Bus, x: u8, y: u8) -> u16 {
+        match self.addressing_mode {
+            AddressingMode::Immediate => {
+                // For Immediate, the operand is the value itself
+                pc + 1 as u16
+            }
+            AddressingMode::ZeroPage => {
+                // ZeroPage is just the operand as an address (only low byte)
+                let low_byte =  bus.read(pc + 1) as u16; 
+                
+                low_byte
+            }
+            AddressingMode::ZeroPageX => {
+                // ZeroPageX: Add the X register value
+                let low_byte =  bus.read(pc + 1) as u16; 
+                low_byte + x as u16
+            }
+            AddressingMode::ZeroPageY => {
+                // ZeroPageY: Add the Y register value
+                let low_byte =  bus.read(pc + 1) as u16; 
+                low_byte + y as u16
+            }
+            AddressingMode::Absolute => {
+                // Absolute: Combine the two operand bytes (16-bit address)
+                // NES use little-endian 
+                let low_byte =  bus.read(pc + 1) as u16;  
+                let high_byte = bus.read(pc + 2) as u16; 
+                (high_byte << 8) | low_byte 
+            }
+            AddressingMode::AbsoluteX => {
+               // AbsoluteX: Add the X register value to the address
+                let low_byte =  bus.read(pc + 1) as u16;  
+                let high_byte = bus.read(pc + 2) as u16; 
+                (high_byte << 8) | low_byte + x as u16
+            }
+            AddressingMode::AbsoluteY => {
+                // AbsoluteY: Add the Y register value to the address
+                 let low_byte =  bus.read(pc + 1) as u16;  
+                 let high_byte = bus.read(pc + 2) as u16; 
+                 (high_byte << 8) | low_byte + y as u16
+             }
+            AddressingMode::Indirect => {
+                // Indirect: Read the address from the operand (little-endian)
+                let low_byte = bus.read(pc + 1) as u16;  
+                let high_byte = bus.read(pc + 2) as u16;
+                let pointer_address = (high_byte << 8) | low_byte; 
+
+                let low_byte_target = bus.read(pointer_address) as u16;  
+                let high_byte_target = bus.read(pointer_address + 1) as u16; 
+                let final_address = (high_byte_target << 8) | low_byte_target; 
+
+                final_address
+            }
+            AddressingMode::IndirectX => {
+                // Indirect: Read the address from the operand (little-endian)
+                let low_byte = bus.read(pc + 1) as u16;  
+                let high_byte = bus.read(pc + 2) as u16;
+                let pointer_address = (high_byte << 8) | low_byte; 
+
+                let low_byte_target = bus.read(pointer_address) as u16;  
+                let high_byte_target = bus.read(pointer_address + 1) as u16; 
+                let final_address = (high_byte_target << 8) | low_byte_target; 
+
+                final_address + x as u16
+            }
+            AddressingMode::IndirectY => {
+                // IndirectY: Use Y register to index into memory
+                let low_byte = bus.read(pc + 1) as u16;  
+                let high_byte = bus.read(pc + 2) as u16;
+                let pointer_address = (high_byte << 8) | low_byte; 
+
+                let low_byte_target = bus.read(pointer_address) as u16;  
+                let high_byte_target = bus.read(pointer_address + 1) as u16; 
+                let final_address = (high_byte_target << 8) | low_byte_target; 
+
+                final_address + y as u16
+            }
+            AddressingMode::Relative => {
+                // Relative: Program counter is updated with a signed offset
+                let offset = bus.read(pc + 1) as u16;
+                pc + offset
+            }
+            AddressingMode::Implied => {
+                // Implied: No address calculation needed
+                0
+            }
+        }
+    }
+}
 
 impl Opcode {
     fn from_binary(binary: u8) -> Option<Instruction> { // opcode, bytes and cycles
