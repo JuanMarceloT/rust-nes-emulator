@@ -28,7 +28,7 @@ impl INesHeader {
 
 
 #[derive(Debug)]
-struct NesRom {
+pub struct NesRom {
     header: INesHeader,  // Cabeçalho iNES
     prg_rom: Vec<u8>,    // Código - PRG-ROM
     chr_rom: Vec<u8>,    // Gráficos - CHR-ROM
@@ -98,7 +98,8 @@ fn get_games() -> io::Result<()> {
                 Ok(rom) => {
                     rom.print_info();
         
-                    process_rom_with_bus(rom);
+                    let mut cpu = CPU::new();
+                    CPU::start(&mut cpu, rom);
                 }
                 Err(e) => eprintln!("Erro ao carregar ROM: {}", e),
             }
@@ -107,6 +108,62 @@ fn get_games() -> io::Result<()> {
     }
 
     Ok(())
+}
+
+
+pub struct CPU {
+    pc : u16,
+    accumulator :u8,
+    x : u8,
+    y : u8,
+    stack_pointer : usize,
+    status : u8
+}
+
+
+impl CPU {
+    pub fn new() -> Self {
+        CPU {
+            pc : 0,
+            accumulator : 0,
+            x : 0,
+            y : 0,
+            stack_pointer : 0,
+            status : 0
+
+        }
+    }
+
+    pub fn start(&mut self, rom: NesRom) -> () {
+        let mut bus = Bus::new();
+
+        if let Err(e) = bus.load_prg_rom(&rom.prg_rom) {
+            eprintln!("Erro ao carregar PRG-ROM: {}", e);
+            return;
+        }
+    
+        self.pc = 0x8000; // PC start in PRG-ROM
+        let rom_end = 0x8000_usize + rom.prg_rom.len(); 
+        
+        while (self.pc as usize) < rom_end {
+            let byte = bus.read(self.pc as u16);
+            match Opcode::from_binary(byte) {
+                Some(opcode) => {
+                    println!("Binary  addressing_mode:'{:?}' corresponds o opcode {:?}", opcode.addressing_mode, opcode.opcode);
+                    for i in 1..opcode.bytes {
+                        println!("{:?}", bus.read(self.pc + (i as u16)));
+                    }
+                    println!("{:?} in the addres, and the value is {:?}", opcode.effective_address(self.pc, &bus, 0 ,1), bus.read(opcode.effective_address(self.pc, &bus,0 ,1)));
+                    self.pc += opcode.bytes as u16;
+                }
+                None => {
+                    println!("No corresponding opcode for binary '{:08b}'", byte);
+                    self.pc += 1;
+                }
+            }
+        }
+    }
+    
 }
 
 
@@ -135,36 +192,6 @@ impl Bus {
         }
         self.memory[0x8000..0x8000 + prg_rom.len()].copy_from_slice(prg_rom);
         Ok(())
-    }
-}
-
-fn process_rom_with_bus(rom: NesRom) {
-    let mut bus = Bus::new();
-
-    if let Err(e) = bus.load_prg_rom(&rom.prg_rom) {
-        eprintln!("Erro ao carregar PRG-ROM: {}", e);
-        return;
-    }
-
-    let mut pc: u16 = 0x8000; // PC start in PRG-ROM
-    let rom_end = 0x8000_usize + rom.prg_rom.len(); 
-    
-    while (pc as usize) < rom_end {
-        let byte = bus.read(pc);
-        match Opcode::from_binary(byte) {
-            Some(opcode) => {
-                println!("Binary  addressing_mode:'{:?}' corresponds o opcode {:?}", opcode.addressing_mode, opcode.opcode);
-                for i in 1..opcode.bytes {
-                    println!("{:?}", bus.read(pc + (i as u16)));
-                }
-                println!("{:?} in the addres, and the value is {:?}", opcode.effective_address(pc, &bus, 0 ,1), bus.read(opcode.effective_address(pc, &bus,0 ,1)));
-                pc += opcode.bytes as u16;
-            }
-            None => {
-                println!("No corresponding opcode for binary '{:08b}'", byte);
-                pc += 1;
-            }
-        }
     }
 }
 
